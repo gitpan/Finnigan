@@ -1,0 +1,15 @@
+Revision history for Perl extension Finnigan.
+
+0.01  Sat Mar  6 23:58:43 2010
+	- original version; created by h2xs 1.23 with options
+		-X -n Finnigan
+
+0.02  Mon 14 Feb 2011 14:43:37 MSK
+        - optimisations for speed in all decoder objects
+        - new object, Finnigan::Scan, provides a lightweight
+          decoder for scan data that takes just two file reads to
+          decode the profile and the centroid list.
+        - more test coverage; the most essential manoeuvres
+          for reading scan data are now represented.
+        - complete documentation of all modules
+
