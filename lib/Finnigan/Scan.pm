@@ -5,6 +5,7 @@ use warnings FATAL => qw( all );
 
 # ----------------------------------------------------------------------------------------
 package Finnigan::Scan::Profile;
+our $VERSION = 0.0206;
 
 my $MAX_DIST = 0.025; # kHz
 my $MAX_DIST_MZ = 0.001; # M/z
@@ -270,6 +271,7 @@ sub find_chunk {
 
 #----------------------------------------------------------------------------------------
 package Finnigan::Scan;
+our $VERSION = 0.0206;
 
 use strict;
 use warnings;
@@ -329,6 +331,7 @@ sub centroids {
 # end Finnigan::Scan::Profile
 # ----------------------------------------------------------------------------------------
 package Finnigan::Scan::ProfileChunk;
+our $VERSION = 0.0206;
 
 sub new {
   my ($class, $buf, $offset, $layout) = @_;
@@ -351,6 +354,7 @@ sub new {
 
 #----------------------------------------------------------------------------------------
 package Finnigan::Scan::CentroidList;
+our $VERSION = 0.0206;
 
 sub new {
   my ($class, $buf) = @_;
