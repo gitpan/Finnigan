@@ -3,7 +3,7 @@ package Finnigan::Decoder;
 use 5.010000;
 use strict;
 use warnings FATAL => qw( all );
-our $VERSION = 0.0204;
+our $VERSION = 0.0206;
 
 use Encode qw//;
 use Carp qw/confess/;
@@ -147,7 +147,7 @@ sub decode {
             type => 'spacer',
             value => '',
            };
-      
+
       $self->{current_element_number} = $i;
       next;
     }

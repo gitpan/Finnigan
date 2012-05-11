@@ -1,10 +1,13 @@
+use feature qw/state say/;
+use 5.010;
+use strict;
 use warnings FATAL => qw( all );
-our $VERSION = 0.0204;
 
 # ----------------------------------------------------------------------------------------
 package Finnigan::Scan::Profile;
 
 my $MAX_DIST = 0.025; # kHz
+my $MAX_DIST_MZ = 0.001; # M/z
 
 sub new {
   my ($class, $buf, $layout) = @_;
@@ -38,79 +41,105 @@ sub peak_count { # deprecated
   $_[0]->{"peak count"};
 }
 
+sub print_bins {
+  my ($self, $bookends) = @_;
+
+  foreach ( @{$self->bins($bookends)} ) {
+    say join "\t", @$_;
+  }
+}
+
 sub bins {
-  my ($self, $range, $add_zeroes) = @_;
+  my ($self, $bookends) = @_;
   my @list;
   my $start = $self->{"first value"};
   my $step = $self->{step};
-  unless ( $range ) {
-    unless ( exists $self->{converter} ) {
-      $range = [$start, $start + $self->{nbins} * $step];
+
+  # Write something at the start of the range
+  my $front_bookend_needed;
+  if ($bookends) {
+    my $fudge = $self->{chunks}->[0]->{'fudge'} || 0;
+    my $startMz = &{$self->{converter}}( $start + $step ) + $fudge;
+    my $next_chunk_start = $self->{chunks}->[0]->{'first bin'};
+    my $gap_size = $next_chunk_start - 0; # will see if it's 0 or 1
+    my $fill_size;
+    if ( $gap_size < 2 * $bookends ) {
+      $fill_size = $gap_size;
+      $front_bookend_needed = 0;
+    }
+    else {
+      $fill_size = $bookends;
+      $front_bookend_needed = 1;
+    }
+
+    foreach my $j ( 1 .. $fill_size ) {
+      push @list, [&{$self->{converter}}( $start + $j * $step ) + $fudge, 0]
     }
   }
 
-  push @list, [$range->[0], 0] if $add_zeroes;
-  my $last_bin_written = 0;
-
-  my $shift = 0; # this is declared outside the chunk loop to allow
-                 # writing the empty bin following the last chunk with
-                 # the same amount of shift as in the last chunk
+  my $fudge = 0; # this is declared outside the chunk loop to allow
+                 # writing the empty bins at the end of the range with
+                 # the same amount of fudge as in the last chunk
 
   foreach my $i ( 0 .. $self->{"peak count"} - 1 ) { # each chunk
     my $chunk = $self->{chunks}->[$i];
-    my $first_bin = $chunk->{"first bin"};
-    $shift = $chunk->{fudge} || 0;
+    my $first_bin = $chunk->{'first bin'};
+    $fudge = $chunk->{fudge} || 0;
     my $x = $start + $first_bin * $step;
 
-    if ( $add_zeroes and $last_bin_written < $first_bin - 1) {
-      # add an empty bin ahead of the chunk, unless there is no gap
-      # between this and the previous chunk
-      my $x0 = $x - $step;
-      my $x_conv = exists $self->{converter} ? &{$self->{converter}}($x0) + $shift : $x0;
-      push @list, [$x_conv, 0];
-    }
-
-    foreach my $j ( 0 .. $chunk->{nbins} - 1) {
-      my $x_conv = exists $self->{converter} ? &{$self->{converter}}($x) + $shift : $x;
-      $x += $step;
-      if ( $range ) {
-        if ( exists $self->{converter} ) {
-          next unless $x_conv >= $range->[0] and $x_conv <= $range->[1];
-        }
-        else {
-          # frequencies have the reverse order
-          next unless $x_conv <= $range->[0] and $x_conv >= $range->[1];
-        }
+    # front bookend
+    if ( $bookends and $front_bookend_needed ) {
+      # add empty bins ahead of the chunk
+      foreach my $j ( $first_bin - $bookends .. $first_bin - 1) {
+        push @list, [&{$self->{converter}}( $start + $j * $step ) + $fudge, 0];
       }
-      my $bin = $first_bin + $j;
-      push @list, [$x_conv, $chunk->{signal}->[$j]];
-      $last_bin_written = $first_bin + $j;
     }
 
-    if ( $add_zeroes
-         and
-         $i < $self->{"peak count"} - 1
-         and
-         $last_bin_written < $self->{chunks}->[$i+1]->{"first bin"} - 1
-       ) {
-      # add an empty bin following the chunk, unless there is no gap
-      # between this and the next chunk
-      my $bin = $last_bin_written + 1;
-      # $x has been incremented inside the chunk loop
-      my $x_conv = exists $self->{converter} ? &{$self->{converter}}($x) + $shift: $x;
-      push @list, [$x_conv, 0];
-      $last_bin_written++;
+    # chunk data
+    foreach my $j ( 0 .. $chunk->{nbins} - 1) {
+      push @list, [&{$self->{converter}}( $start + ($first_bin + $j) * $step ) + $fudge, $chunk->{signal}->[$j]];
+    }
+
+    # tail bookeend
+    if ( $bookends ) {
+
+      # determine the number of gap bins
+      my $next_chunk_start;
+      my $next_chunks_fudge;
+      if ($i == $self->{'peak count'} - 1 ) {
+        $next_chunk_start = $self->{nbins};
+        $next_chunks_fudge = $fudge;
+      }
+      else {
+        $next_chunk_start = $self->{chunks}->[$i + 1]->{'first bin'};
+        $next_chunks_fudge = $self->{chunks}->[$i + 1]->{fudge} || 0; # not all profiles have the fudge value
+      }
+      my $gap_size = $next_chunk_start - $first_bin - $chunk->{nbins}; # will see if it's 0 or 1
+      my $fill_size = $bookends;
+      if ( $gap_size < 2 * $bookends ) {
+        $fill_size = $gap_size;
+        $front_bookend_needed = 0;
+      }
+      else {
+        $front_bookend_needed = 1;
+      }
+
+      # write the tail bookend
+      foreach my $j ( $chunk->{nbins} .. $chunk->{nbins} + $fill_size - 1 ) {
+        # Using the next chunk's fudge to add zeroes to this chunk is unreasonable, but whatever they please...
+        push @list, [&{$self->{converter}}( $start + ($first_bin + $j) * $step ) + $next_chunks_fudge, 0]
+      }
     }
   }
 
-  if ( $add_zeroes and $last_bin_written < $self->{nbins} - 1 ) {
-    # add an empty bin following the last chunk, unless there is no gap
-    # left between it and the end of the range ($self->nbins - 1)
-    my $x = $start + ($last_bin_written + 1) * $step;
-    my $x_conv = exists $self->{converter} ? &{$self->{converter}}($x) + $shift: $x;
-    push @list, [$x_conv, 0];
-    push @list, [$range->[1], 0] if $add_zeroes;
+  # filling the bookend at the end of the range
+  if ( $bookends and $front_bookend_needed ) {
+    my $last_bin = $self->{nbins};
+    foreach my $j ( $last_bin - $bookends + 1 .. $last_bin) {
+      push @list, [&{$self->{converter}}( $start + $j * $step ) + $fudge, 0];
+    }
   }
+
   return \@list;
 }
 
@@ -118,18 +147,19 @@ sub find_peak_intensity {
   # Finds the nearest peak in the profile for a given query value.
   # One possible use is to look up the precursor ion intensity, since
   # it is not stored as a separate item anywhere in the data file.
+  # Return the intensity the peak matching the query M/z.
   my ($self, $query) = @_;
   my $raw_query = &{$self->{"inverse converter"}}($query);
 
   # find the closest chunk
   my ($nearest_chunk, $dist) = $self->find_chunk($raw_query);
   if (not defined $dist or $dist > $MAX_DIST) { # undefind $dist means we're outside the full range of peaks in the scan
-    say STDERR "$self->{'dependent scan number'}: could not find a profile peak in parent scan $self->{'scan number'} within ${MAX_DIST} kHz of the target frequency $raw_query (M/z $query)";
+    say STDERR "$self->{'dependent scan number'}: could not find a profile peak in parent scan $self->{'scan number'} within ${MAX_DIST} M/z of the target frequency $raw_query (M/z $query)";
     return 0;
   }
 
   my @chunk_ix = ($nearest_chunk);
-  $i = $nearest_chunk;
+  my $i = $nearest_chunk;
   while ( $i < $self->{"peak count"} - 1 and $self->chunk_dist($i, $i++) <= $MAX_DIST ) { # kHz
     push @chunk_ix, $i;
   }
@@ -250,8 +280,8 @@ sub decode {
   my ($class, $stream) = @_;
 
   my $self = {
-	      addr => tell $stream
-	     };
+    addr => tell $stream
+  };
   my $buf;
   my $nbytes;
   my $bytes_to_read;
@@ -342,6 +372,67 @@ sub count {
 
 sub list {
   shift->{peaks};
+}
+
+sub find_peak_intensity {
+  # Finds the nearest peak in the profile for a given query value.
+
+  my ($self, $query) = @_;
+
+  # find the closest peak
+  my ($nearest_peak, $dist) = $self->find_peak($query);
+  if (not defined $dist or $dist > $MAX_DIST_MZ) { # undefind $dist means we're outside the full range of peaks in the scan
+    say STDERR "$self->{'dependent scan number'}: could not find a profile peak in parent scan $self->{'scan number'} within ${MAX_DIST_MZ} M/z the target value $query";
+    return 0;
+  }
+
+  return $self->{peaks}->[$nearest_peak]->[1];
+}
+
+sub find_peak {
+  # Use binary search to find a pair of peaks
+  # surrounding the probe value
+
+  # One possible use is to look up the precursor ion intensity, since
+  # it is not stored as a separate item anywhere in the data file.
+
+  my ( $self, $value) = @_;
+  my ( $lower, $upper, $low_ix, $high_ix, $mid_ix );
+  my $safety_count = 15;
+  my $dist;
+
+  sub num_equal {
+    my( $float1, $float2, $diff ) = @_;
+    abs( $float1 - $float2 ) < ($diff or 0.00001);
+  }
+
+  ( $low_ix, $high_ix ) = ( 0, $self->{count} - 1 );
+  ( $lower, $upper ) = ($self->{peaks}->[$low_ix]->[0], $self->{peaks}->[$high_ix]->[0]);
+  if ( $value < $lower - $MAX_DIST_MZ or $value > $upper + $MAX_DIST_MZ) {
+    return (undef, undef);
+  }
+  else {
+    my $dist;
+    while ( $low_ix <= $high_ix ) {
+      die "broken find_peak algorithm" unless $safety_count--;
+      $mid_ix = $low_ix + int ( ( $high_ix - $low_ix ) / 2 );
+      my $peak = $self->{peaks}->[$mid_ix];
+      $dist = abs($value - $peak->[0]);
+      # say STDERR "    testing: $mid_ix [$peak->[0]] against $value";
+      if ( num_equal($peak->[0], $value, $MAX_DIST_MZ ) ) {
+        return ($mid_ix, $dist)
+      }
+      elsif ( $peak->[0] < $value) {
+        # say STDERR "      distance = $dist, shifting up";
+        $low_ix = $mid_ix + 1;
+      }
+      else { # $peak->[0] > $value
+        # say STDERR "      distance = $dist; shifting down";
+        $high_ix = $mid_ix - 1;
+      }
+    }
+    return (undef, $dist);
+  }
 }
 
 1;
@@ -518,7 +609,7 @@ supports the search for precursor intensity in uf-mzxml.
 
 =back
 
-=head1 SEE ALSO 
+=head1 SEE ALSO
 
 Profile (structure)
 

@@ -3,9 +3,8 @@
 
 #########################
 
-# change 'tests => 1' to 'tests => last_test_to_print';
+use Test::More tests => 239;
 
-use Test::More tests => 226;
 BEGIN { use_ok('Finnigan') };
 
 #########################
@@ -18,7 +17,7 @@ BEGIN { use_ok('Finnigan') };
 sub num_equal {
   my( $float1, $float2, $diff ) = @_;
   abs( $float1 - $float2 ) < ($diff or 0.00001);
-} 
+}
 
 my $file = "t/100225.raw";
 open INPUT, "<$file" or die "can't open '$file': $!";
@@ -37,6 +36,7 @@ is( $header->audit_start->time, "Thu Feb 25 09:02:27 2010", "AuditTag->time" );
 my $seq_row = Finnigan::SeqRow->decode(\*INPUT, $header->version);
 is( $seq_row->size, 260, "SeqRow->size" );
 is( $seq_row->file_name, 'C:\Xcalibur\calsolution\100225.raw', "SeqRow->file_name" );
+is( $seq_row->path, '', "SeqRow->path" );
 is( $seq_row->injection->size, 64, "InjectionData->size" );
 is( $seq_row->injection->n, 1, "InjectionData->n" );
 # untested in SeqRow::InjectionData: volume, injected volume, internal standard amount, dilution factor, the unknowns
@@ -51,6 +51,7 @@ is( $cas_info->preamble->size, 24, "CasInfoPreamble->size" );
 # RawFileInfo / RawFileInfoPreamble -- the root index structure; interesting information is all in the preamble
 my $rfi = Finnigan::RawFileInfo->decode(\*INPUT, $header->version);
 is( $rfi->stringify, "Thu Feb 25 2010 9:2:27.781; data addr: 24950; RunHeader addr: 777542", "RawFileInfo->stringify" );
+is( $rfi->preamble->xmlTimestamp, '2010-02-25T09:02:28Z', "RawFileInfoPreamble->xmlTimestamp" );
 is( $rfi->size, 844, "RawFileInfo->size" );
 is( $rfi->preamble->size, 804, "RawFileInfoPreamble->size" );
 my $data_addr = $rfi->preamble->data_addr;
@@ -113,6 +114,13 @@ is( $params_addr, 838794, "RunHeader->params_addr" );
 is( $run_header->ntrailer, 33, "RunHeader->ntrailer" );
 is( $run_header->nparams, 33, "RunHeader->nparams" );
 is( $run_header->nsegs, 1, "RunHeader->nsegs" );
+my $scan_index_addr = $run_header->scan_index_addr;
+is( $scan_index_addr, 829706, "RunHeader->scan_index_addr" );
+is( $run_header->data_addr, $data_addr, "RunHeader->data_addr" );
+my $inst_log_addr = $run_header->inst_log_addr;
+is( $inst_log_addr, 792726, "RunHeader->inst_log_addr" );
+my $error_log_addr = $run_header->error_log_addr;
+is( $error_log_addr, 803810, "RunHeader->ERROR>_log_addr" );
 my $sample_info = $run_header->sample_info;
 
 # SampleInfo
@@ -125,15 +133,8 @@ ok( num_equal($sample_info->low_mz, 100), "SampleInfo->low_mz" );
 ok( num_equal($sample_info->high_mz, 2000), "SampleInfo->high_mz" );
 ok( num_equal($sample_info->start_time, 0.00581833333333333), "SampleInfo->start_time" );
 ok( num_equal($sample_info->end_time, 0.242753333333333), "SampleInfo->end_time" );
-my $scan_index_addr = $sample_info->scan_index_addr;
-is( $scan_index_addr, 829706, "SampleInfo->scan_index_addr" );
-is( $sample_info->data_addr, $data_addr, "SampleInfo->data_addr" );
-my $inst_log_addr = $sample_info->inst_log_addr;
-is( $inst_log_addr, 792726, "SampleInfo->inst_log_addr" );
 my $inst_log_length = $sample_info->inst_log_length;
 is( $inst_log_length, 17, "SampleInfo->inst_log_length" );
-my $error_log_addr = $sample_info->error_log_addr;
-is( $error_log_addr, 803810, "SampleInfo->error_log_addr" );
 
 # -------------------------------------------------------------------------------
 # With all pointers now on hand, we could go ahead and read the ScanEvent stream 
@@ -220,6 +221,8 @@ is( $et->preamble->ionization('decode'), "ESI", "ScanEventTemplate->ScanEventPre
 is( $et->preamble->ionization('decode'), "ESI", "ScanEventTemplate->ScanEventPreamble->ionization(decode) (1)" );
 is( $et->preamble->analyzer('decode'), "FTMS", "ScanEventTemplate->ScanEventPreamble->analyzer(decode) (1)" );
 is( $et->preamble->stringify, "FTMS + p ESI Full ms", "ScanEventTemplate->ScanEventPreamble->stringify (1)" );
+is( $et->controllerType, 0, "ScanEventTemplate->controllerType; Assumption - not verified!");
+is( $et->controllerNumber, 1, "ScanEventTemplate->controllerNumber; Assumption - not verified!");
 ok( num_equal($et->fraction_collector->low, 400), "ScanEventTemplate->FractionCollector->low (1)" );
 ok( num_equal($et->fraction_collector->high, 2000), "ScanEventTemplate->FractionCollector->high (1)" );
 is( $et->fraction_collector->stringify, "[400.00-2000.00]", "ScanEventTemplate->FractionCollector->stringify (1)" );
@@ -258,7 +261,7 @@ ok( num_equal($tune_file->{data}->{"421|FT Cal. Item 250:"}->{value}, 0), "Gener
 
 # ScanIndex
 is( tell INPUT, $scan_index_addr, "should have arrived at the start of scan index" );
-my $index_entry       = Finnigan::ScanIndexEntry->decode( \*INPUT );
+my $index_entry       = Finnigan::ScanIndexEntry->decode( \*INPUT, $header->version );
 # measure scan index record size
 my $record_size = $index_entry->size;
 is( $index_entry->size, 72, "ScanIndexEntry->size" );
@@ -281,7 +284,7 @@ ok( num_equal($index_entry->base_intensity, 796088), "ScanIndexEntry->base_inten
 ok( num_equal($index_entry->low_mz, 400), "ScanIndexEntry->low_mz (0)" );
 ok( num_equal($index_entry->high_mz, 2000), "ScanIndexEntry->high_mz (0)" );
 for my $i (2 .. $nrecords) { # skip to the last index entry
-  $index_entry = Finnigan::ScanIndexEntry->decode( \*INPUT );
+  $index_entry = Finnigan::ScanIndexEntry->decode( \*INPUT, $header->version );
 }
 is( $index_entry->offset, 721572, "ScanIndexEntry->offset (32)" );
 is( $index_entry->index, 32, "ScanIndexEntry->index (32)" );
@@ -351,14 +354,20 @@ is( tell INPUT, $params_addr, "should have arrived at the start of ScanParameter
 # Finally reach ScanParameters. Test these, then return to scan data.
 my $p = Finnigan::ScanParameters->decode(\*INPUT, $scan_parameters_header->field_templates);
 is( $p->charge_state, 1, "ScanParameters->charge_state (type 6)" );
-for my $i (2 .. $nrecords) { # skip to the end of file
+ok( num_equal($p->injection_time, 200.0), "ScanParameters->injection_time (type 10)" );
+# skip to the MS2 scan
+$p = Finnigan::ScanParameters->decode(\*INPUT, $scan_parameters_header->field_templates);
+ok( num_equal($p->monoisotopic_mz, 445.121063232), "ScanParameters->monoisotopic_mz (type 11)" );
+for my $i (3 .. $nrecords) { # skip to the end of file
   my $p = Finnigan::ScanParameters->decode(\*INPUT, $scan_parameters_header->field_templates);
 }
 is( $p->charge_state, 1, "ScanParameters->charge_state (type 6)" );
+is( $p->scan_segment, 1, "ScanParameters->scan_segment (type 6)" );
+is( $p->scan_event, 2, "ScanParameters->scan_event (type 6)" );
 is( tell INPUT, 848001, "should have arrived at the null stream near the end of the file" );
 
 # Read the null stream
-$length = Finnigan::Decoder->read(\*INPUT, ['length' => ['V', 'UInt32']])->{data}->{length}->{value};
+my $length = Finnigan::Decoder->read(\*INPUT, ['length' => ['V', 'UInt32']])->{data}->{length}->{value};
 is( $length, 0, "the stream at the end of the file should have zero size" );
 is( eof INPUT, 1, "should get EOF on the stream handle" );
 
@@ -421,13 +430,24 @@ is( $scan->header->profile_size, 5624, "Scan->header->profile_size" );
 $profile = $scan->profile;
 $profile->set_converter( $converter ); # from ScanEvent 1 above
 $bins = $profile->bins;
-ok( num_equal($bins->[0]->[0], 400.209152455266), "Scan->profile->bins (Mz)" );
-ok( num_equal($bins->[0]->[1], 447.530578613281), "Scan->profile->bins (signal)" );
+ok( num_equal($bins->[0]->[0], 400.209152455266), "Scan->profile->bins; Mz" );
+ok( num_equal($bins->[0]->[1], 447.530578613281), "Scan->profile->bins; signal" );
+# $bins = $profile->bins(undef, 'add zeroes');
+# use Data::Dumper;
+# diag(Dumper($bins));
+# ok( num_equal($bins->[0]->[0], 400.209152455266), "Scan->profile->bins; Mz" );
 
 $c = $scan->centroids;
-is ($c->count, 580, "Scan->centroids->count");
-ok( num_equal($c->list->[0]->[0], 400.212463378906), "Scan->centroids->list (Mz)");
-ok( num_equal($c->list->[0]->[1], 1629.47326660156), "Scan->centroids->list (abundance)");
+$c->{'scan number'} = 1; # to support scan number reporting inside Scan::find_peak_intensity()
+$c->{'dependent scan number'} = 2;
+is( $c->count, 580, "Scan->centroids->count" );
+ok( num_equal($c->list->[0]->[0], 400.212463378906), "Scan->centroids->list (Mz)" );
+ok( num_equal($c->list->[0]->[1], 1629.47326660156), "Scan->centroids->list (abundance)" );
+is( ($c->find_peak(1622.96887207031))[0], 538, "Scan->find_peak, exact match" );
+is( ($c->find_peak(1622.968))[0], 538, "Scan->find_peak, off a bit" );
+is( ($c->find_peak(1622.6))[0], undef, "Scan->find_peak, far off" );
+ok( num_equal($c->find_peak_intensity(1622.968), 232378.640625), "Scan->find_peak_intensity, off a bit" );
+is( $c->find_peak_intensity(1622.6), 0, "Scan->find_peak_intensity, far off" );
 
 # fast-forward to ScanIndex
 seek INPUT, $scan_index_addr, 0;

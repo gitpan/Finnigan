@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Finnigan
-version:            0.0204
+version:            0.0206
 abstract:           Thermo/Finnigan mass spec data decoder
 author:
     - Gene Selkov <selkovjr@gmail.com>
@@ -13,16 +13,18 @@ build_requires:
 requires:
     Carp:             1.08
     Data::Hexdumper:  2.01
-    Devel::Size:      0.71
+    Data::UUID:       1.06
+    Digest::SHA1:     2.13
     Encode:           2.23
+    File::Basename:   2.77
     File::Temp:       0.21
     Getopt::Declare:  1.13
     Getopt::Long:     2.37
     MIME::Base64:     3.07
     Module::Find:     0.06
-    Storable:         2.18
+    Scalar::Util:     1.21
     Tie::IxHash:      1.21
-    XML::Generator:   1.03
+    XML::Generator:   1.04
 no_index:
     directory:
         - t

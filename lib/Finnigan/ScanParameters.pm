@@ -2,13 +2,29 @@ package Finnigan::ScanParameters;
 
 use strict;
 use warnings FATAL => qw( all );
-our $VERSION = 0.0204;
+our $VERSION = 0.0206;
 
 use Finnigan;
 our @ISA = ('Finnigan::GenericRecord');
 
 sub charge_state {
-  shift->{data}->{"Charge State:"}->{value}
+  shift->{data}->{'Charge State:'}->{value}
+}
+
+sub injection_time {
+  shift->{data}->{'Ion Injection Time (ms):'}->{value}
+}
+
+sub monoisotopic_mz {
+  shift->{data}->{'Monoisotopic M/Z:'}->{value}
+}
+
+sub scan_segment {
+  shift->{data}->{'Scan Segment:'}->{value}
+}
+
+sub scan_event {
+  shift->{data}->{'Scan Event:'}->{value}
 }
 
 1;
@@ -52,6 +68,22 @@ The constructor method. It needs a previously decoded header to work.
 =item charge_state
 
 Get the charge state of the base ion
+
+=item injection_time
+
+Get ion injection time in milliseconds
+
+=item monoisotopic_mz
+
+Get the monoisotopic mass of precursor ion
+
+=item scan_segment
+
+Get the current ScanSegment number (1 .. )
+
+=item scan_event
+
+Get the cunnent ScanEvent number (1 .. )
 
 =back
 

@@ -10,15 +10,16 @@ use Finnigan;
 
 my $args = new Getopt::Declare q{
   [strict]
-  [mutex: -d -e -l -p -plot]
-  -d[ump]			dump the header [required]
+  [mutex: -d -e -l -plot]
+  [mutex: -e -l -p -plot]
+  -d[ump]			dump the header (-d); dump the header and the profile (-dp)
   -e[xtract]			extract the entire scan as binary data (will print by default)
   -l[ist]			print or extract the peak list [required]
   -p[rofile]			print or extract the scan profile as a 2-column table [required]
   -plot				plot the profile (and the called peaks, if available) [required]
   -v				convert f -> M/z [requires: -p]
   -z				add empty bins [requires: -p || -plot]
-  -n[unmber] <n:+i>		select scan number <n> [required]
+  -n[umber] <n:+i>		select scan number <n> [required]
   -mz <low:+n> .. <high:+n>	limit the plot to the range of M/z values between <low> and <high> [requires: (-p && -v) || -plot]
   <file>			input file [required]
 }
@@ -34,17 +35,18 @@ open INPUT, "<$file" or die "can't open '$file': $!";
 binmode INPUT;
 
 my $header = Finnigan::FileHeader->decode(\*INPUT);
-my $seq_row = Finnigan::SeqRow->decode(\*INPUT, $header->version);
+my $VERSION = $header->version;
+my $seq_row = Finnigan::SeqRow->decode(\*INPUT, $VERSION);
 my $cas_info = Finnigan::CASInfo->decode(\*INPUT);
-my $rfi = Finnigan::RawFileInfo->decode(\*INPUT, $header->version);
+my $rfi = Finnigan::RawFileInfo->decode(\*INPUT, $VERSION);
 
 my $data_addr = $rfi->preamble->data_addr;
 my $run_header_addr = $rfi->preamble->run_header_addr;
 
 # fast-forward to RunHeader
 seek INPUT, $run_header_addr, 0;
-my $run_header = Finnigan::RunHeader->decode(\*INPUT, $header->version);
-my $scan_index_addr = $run_header->sample_info->scan_index_addr;
+my $run_header = Finnigan::RunHeader->decode(\*INPUT, $VERSION);
+my $scan_index_addr = $run_header->scan_index_addr;
 my $trailer_addr = $run_header->trailer_addr;
 
 # fast-forward to ScanIndex
@@ -64,11 +66,11 @@ die "index $n is not in the range of available scan numbers ($first_scan .. $las
   unless $n >= $first_scan and $n <= $last_scan;
 
 # get the first entry
-my $entry = Finnigan::ScanIndexEntry->decode(\*INPUT);
+my $entry = Finnigan::ScanIndexEntry->decode(\*INPUT, $VERSION);
 my $size = $entry->size;
 if ($n > 1) {
   seek INPUT, $scan_index_addr + ($n - 1)*$size, 0;
-  $entry = Finnigan::ScanIndexEntry->decode(\*INPUT);
+  $entry = Finnigan::ScanIndexEntry->decode(\*INPUT, $VERSION);
 }
 
 $scan_index = $entry->values;
@@ -85,11 +87,15 @@ my $nbytes = read INPUT, $rec, $bytes_to_read;
 $nbytes == $bytes_to_read
   or die "could not read all $bytes_to_read bytes of the trailer scan events count at $trailer_addr";
 my $trailer_length = unpack 'V', $rec;
+if ($trailer_length == 0) {
+  print STDERR "warning: zero trailer length at file offset " . (tell(INPUT) - $nbytes) . "\n";
+  $trailer_length = $last_scan - $first_scan + 1;
+}
 
 # read all scan events preceding the desired one (they are variable-size structures)
 my $scan_event;
 foreach my $i ( 1 .. $trailer_length) {
-  $scan_event = Finnigan::ScanEvent->decode(\*INPUT, $header->version);
+  $scan_event = Finnigan::ScanEvent->decode(\*INPUT, $VERSION) or die "could not decode ScanEvent at file offset" . tell(INPUT);
   next if $i < $n;
   last;
 }
@@ -104,9 +110,12 @@ $profile = Finnigan::Profile->decode(\*INPUT, $ph->layout) if $ph->profile_size;
 my $peaks;
 $peaks = Finnigan::Peaks->decode(\*INPUT) if $ph->peak_list_size;
 
+# dump the header
 if ( exists $args->{-d} ) {
-  $ph->dump(style => 'wiki', relative => 1);
+  $ph->dump();
 }
+
+# least the centroids
 if ( exists $args->{-l} ) {
   if ( $peaks ) {
     if ( exists $args->{-e} ) {
@@ -127,13 +136,13 @@ if ( exists $args->{-l} ) {
   }
 }
 
+# various ways to look at the profile
 if ( exists $args->{-p} or exists $args->{-plot}) {
   unless ( $profile ) {
     say STDERR "this scan has no profile";
     exit; # done with the task
   }
   if ( exists $args->{-p} ) {
-    # $profile->chunk->[0]->dump(style=>'wiki', relative=>1);
     if ( exists $args->{-e} ) {
       say STDERR sprintf("%d (%x) .. %d (%x)", $profile->addr, $profile->addr, $profile->addr + $profile->size, $profile->addr + $profile->size);
       seek INPUT, $profile->addr, 0;
@@ -143,16 +152,34 @@ if ( exists $args->{-p} or exists $args->{-plot}) {
       print $rec;
     }
     else {
-      my $range = [$ph->low_mz, $ph->high_mz];
-      if ( exists $args->{-mz} ) {
-        $range = [$args->{-mz}{"<low>"}, $args->{-mz}{"<high>"}];
-      }
-      if ( exists $args->{-v} ) {
-        $profile->set_converter($scan_event->converter);
-        $profile->print_bins($range, $args->{-z});
+      if ( exists $args->{-d} ) {
+        say "--------------------------------------";
+        say "Profile:";
+        say "  first value: " . $profile->first_value;
+        say "  step: " . $profile->step;
+        say "  number of chunks: " . $profile->nchunks;
+        say "  number of bins: " . $profile->nbins;
+        foreach my $i ( 0 .. $profile->nchunks - 1 ) {
+          say "  --- Chunk $i ---";
+          say $profile->chunk->[$i]->dump;
+        }
       }
       else {
-        $profile->print_bins(undef, $args->{-z});
+        my $range = [$ph->low_mz, $ph->high_mz];
+        if ( exists $args->{-mz} ) {
+          $range = [$args->{-mz}{"<low>"}, $args->{-mz}{"<high>"}];
+        }
+        if ( exists $args->{-v} ) {
+          $profile->set_converter($scan_event->converter);
+          $profile->print_bins($range, $args->{-z});
+        }
+        else {
+          if ( $scan_event->nparam == 0 ) {
+            # this is a (naive) sign that the profile has already been converted
+            $profile->set_converter(sub{shift});
+          }
+          $profile->print_bins(undef, $args->{-z});
+        }
       }
     }
   }
@@ -198,7 +225,7 @@ END
 __END__
 =head1 NAME
 
-uf-scan - examine peak data in a single MS scan
+uf-scan - examine scan data in a single MS scan
 
 =head1 SYNOPSIS
 
@@ -206,14 +233,14 @@ uf-scan [options] file
 
  Options:
 
-  -d[ump]                       dump the packet header
+  -d[ump]                       dump the packet header (-d); dump the header and the profile (-dp)
   -e[xtract]                    extract the entire scan data as a binary chunk
   -l[ist]                       list the called peaks [required]
   -p[rofile]                    print the scan profile as a 2-column table [required]
   -plot                         plot the profile (along with the called peaks, if available) [required]
   -v                            convert f -> M/z [requires: -p]
   -z                            add empty bins [requires: -p]
-  -n[unmber] <n:+i>             select scan number <n> [required]
+  -n[umber] <n:+i>              select scan number <n> [required]
   -mz <low:+n> .. <high:+n>     limit the plot to the range of M/z values between <low> and <high> [requires: -plot]
   <file>                        input file [required]
 
@@ -249,7 +276,7 @@ Used with either B<-l> or B<-p>, this option option clips the binary data chunk 
 
 =head1 DESCRIPTION
 
-B<uf-scan> can be used to list or plot the scan data for a single scan. The B<-profile> option instructs B<uf-scan> to print the profile data, the B<-list> options lists the peaks, and the B<-plot> option writes an R script to plot the profile and peak centroids, if both kinds of data are present in the raw file, or just the profile if the centroids are not present.
+B<uf-scan> can be used to list or plot the scan data for a single scan. The B<-profile> option instructs B<uf-scan> to print the profile data, the B<-list> option lists the peaks, and the B<-plot> option writes an R script to plot the profile and peak centroids, if both kinds of data are present in the raw file, or just the profile if the centroids are not present.
 
 Options B<-profile>, B<-list> and B<-plot> are mutually exclusive.
 
@@ -301,6 +328,10 @@ profile; it only lists the existing centroids if they are present.
  uf-scan -plot -n 1 -mz 445.0 .. 445.2 sample.raw | R --vanilla --slave > plot.eps
 
 If called peaks are present, they will be shown as dots on the graph.
+
+=item To see the amount of correction applied to each bin in a scan:
+
+ uf-scan -d -p -n 18588 sample.raw | grep fudge | cut -f 5
 
 =back
 

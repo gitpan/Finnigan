@@ -2,7 +2,7 @@ package Finnigan::SeqRow;
 
 use strict;
 use warnings FATAL => qw( all );
-our $VERSION = 0.0204;
+our $VERSION = 0.0206;
 
 use Finnigan;
 use base 'Finnigan::Decoder';
@@ -35,8 +35,8 @@ sub decode {
                           "unknown text[d]"  => ['varstr', 'PascalStringWin32'],
                           "unknown long"     => ['V',      'UInt32'],
                          ];
-  
-  $specific_fields{62} = [
+
+  $specific_fields{60} = [
                           "vial"             => ['varstr', 'PascalStringWin32'],
                           "unknown text[c]"  => ['varstr', 'PascalStringWin32'],
                           "unknown text[d]"  => ['varstr', 'PascalStringWin32'],
@@ -57,7 +57,10 @@ sub decode {
                           "unknown text[r]"  => ['varstr', 'PascalStringWin32'],
                           "unknown text[s]"  => ['varstr', 'PascalStringWin32'],
                          ];
-  $specific_fields{63} = $specific_fields{62};
+  $specific_fields{62} = $specific_fields{60};
+  $specific_fields{63} = $specific_fields{60};
+  $specific_fields{64} = $specific_fields{60};
+  $specific_fields{66} = $specific_fields{60};
 
   die "don't know how to parse version $version" unless $specific_fields{$version};
   my $self = Finnigan::Decoder->read($stream, [@common_fields, @{$specific_fields{$version}}]);
@@ -71,6 +74,10 @@ sub injection {
 
 sub file_name {
   shift->{data}->{"file name"}->{value};
+}
+
+sub path {
+  shift->{data}->{path}->{value};
 }
 
 1;
@@ -118,7 +125,11 @@ Get the Finnigan::InjectionData object
 
 =item file_name
 
-Get the original file name
+Get the original raw file name
+
+=item path
+
+Get the directory path to the raw file in the source file system
 
 =back
 

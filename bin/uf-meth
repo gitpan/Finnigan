@@ -6,6 +6,7 @@ use feature qw/state say/;
 use 5.010;
 
 use Getopt::Declare;
+use Encode qw//;
 use Data::Hexdumper qw/hexdump/;
 use Finnigan;
 
@@ -49,6 +50,11 @@ my $header = Finnigan::FileHeader->decode(\*INPUT);
 my $seq_row = Finnigan::SeqRow->decode(\*INPUT, $header->version);
 my $cas_info = Finnigan::CASInfo->decode(\*INPUT);
 my $rfi = Finnigan::RawFileInfo->decode(\*INPUT, $header->version);
+
+if ( $rfi->preamble->data_addr == tell INPUT ) {
+  say STDERR "Method file not present";
+  exit;
+}
 my $mf = Finnigan::MethodFile->decode(\*INPUT);
 
 if ( exists $args->{-s} ) {
@@ -144,7 +150,15 @@ elsif ( exists $args->{-p} ) {
     say "$args->{-p} has no data";
     exit -1;
   }
-  print $data;
+  if ($args->{-p} =~ /Text/) {
+    # windows encoding is not readable on a text terminal
+    binmode STDOUT, ":utf8";
+    print $data;
+    #print Encode::decode('UTF-16LE', (pack "C*", unpack "U0C*", $data));
+  }
+  else {
+    print $data;
+  }
   #      $mf->header->dump(relative => exists $args->{-r});
 }
 
@@ -219,8 +233,8 @@ Give the full path to extract a single component from the compound OLE2 containe
 
 =head1 DESCRIPTION
 
-B<uf-meth>displays the contents of the [MethodFile] structure, its
-component [FileHeader]. and the compound file (OLE2) storage embedded
+B<uf-meth> displays the contents of the [MethodFile] structure, its
+component [FileHeader], and the compound file (OLE2) storage embedded
 within.
 
 By default, it lists the instrument methods comtained in the compound
@@ -265,7 +279,7 @@ Example output:
     Data (228 bytes)
     Text (1176 bytes)
     Comments (4 bytes)
-  Surveyor Sample Pump 
+  Surveyor Sample Pump
     Data (228 bytes)
     Text (1176 bytes)
     Comments (4 bytes)

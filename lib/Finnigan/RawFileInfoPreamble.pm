@@ -2,7 +2,7 @@ package Finnigan::RawFileInfoPreamble;
 
 use strict;
 use warnings FATAL => qw( all );
-our $VERSION = 0.0204;
+our $VERSION = 0.0206;
 
 use Finnigan;
 use base 'Finnigan::Decoder';
@@ -13,15 +13,15 @@ sub decode {
   my ($class, $stream, $version) = @_;
 
   my @common_fields = (
-                       "unknown long[1]"  => ['V',    'UInt32'],
-                       year               => ['v',    'UInt16'],
-                       month              => ['v',    'UInt16'],
-                       "day of the week"  => ['v',    'UInt16'],
-                       day                => ['v',    'UInt16'],
-                       hour               => ['v',    'UInt16'],
-                       minute             => ['v',    'UInt16'],
-                       second             => ['v',    'UInt16'],
-                       millisecond        => ['v',    'UInt16'],
+                       "method file present"  => ['V',    'UInt32'],
+                       year                   => ['v',    'UInt16'],
+                       month                  => ['v',    'UInt16'],
+                       "day of the week"      => ['v',    'UInt16'],
+                       day                    => ['v',    'UInt16'],
+                       hour                   => ['v',    'UInt16'],
+                       minute                 => ['v',    'UInt16'],
+                       second                 => ['v',    'UInt16'],
+                       millisecond            => ['v',    'UInt16'],
                       );
 
   my %specific_fields;
@@ -34,11 +34,33 @@ sub decode {
                           "unknown_long[5]"   => ['V',    'UInt32'],
                           "unknown_long[6]"   => ['V',    'UInt32'],
                           "run header addr"   => ['V',    'UInt32'],
-                          unknown_area        => ['C756', 'RawBytes'], # 804 - 12 * 4 (the structure seems to be fixed-size)
+                          unknown_area        => ['C756', 'RawBytes'], # 804 - 12 * 4 (804 is the fixed size of RawFileInfoPreamble prior to v.64)
                          ];
 
+  $specific_fields{60} = $specific_fields{57};
   $specific_fields{62} = $specific_fields{57};
   $specific_fields{63} = $specific_fields{57};
+
+  $specific_fields{64} = [
+                          "unknown_long[2]"                => ['V',     'UInt32'],
+                          "32-bit data addr (unused)"      => ['V',     'UInt32'],
+                          "unknown_long[3]"                => ['V',     'UInt32'],
+                          "unknown_long[4]"                => ['V',     'UInt32'],
+                          "unknown_long[5]"                => ['V',     'UInt32'],
+                          "unknown_long[6]"                => ['V',     'UInt32'],
+                          "32-b run header addr (unused)"  => ['V',     'UInt32'],
+                          "unknown_area[1]"                => ['C760',  'RawBytes'],
+                          "data addr"                      => ['Q<',    'UInt64'],
+                          "unknown_long[7]"                => ['V',     'UInt32'],
+                          "unknown_long[8]"                => ['V',     'UInt32'],
+                          "run header addr"                => ['Q<',    'UInt64'],
+                          "unknown_area[2]"                => ['C1008', 'RawBytes'],
+                         ];
+
+  if ($version == 66) {
+    $specific_fields{66} = $specific_fields{64};
+    $specific_fields{66}->[-1]->[0] = 'C1024'; # unknown_area[2] has been extended
+  }
 
   die "don't know how to parse version $version" unless $specific_fields{$version};
   my $self = Finnigan::Decoder->read($stream, [@common_fields, @{$specific_fields{$version}}]);
@@ -65,6 +87,19 @@ sub timestamp {
                           . "."
                             . $self->{data}->{millisecond}->{value} 
                               ;
+}
+
+sub xmlTimestamp {
+  my $self = shift;
+  sprintf(
+    '%04d-%02d-%02dT%02d:%02d:%02.0fZ',
+    $self->{data}->{year}->{value},
+    $self->{data}->{month}->{value},
+    $self->{data}->{day}->{value},
+    $self->{data}->{hour}->{value},
+    $self->{data}->{minute}->{value},
+    $self->{data}->{second}->{value} + $self->{data}->{millisecond}->{value} / 1000
+  );
 }
 
 sub run_header_addr {
@@ -122,7 +157,11 @@ The constructor method
 
 =item timestamp
 
-Get the timestamp in the text form: Wkd Mmm DD YYYY hh:mm:ss.ms
+Get the timestamp in text form: Wkd Mmm DD YYYY hh:mm:ss.ms
+
+=item xmlTimestamp
+
+Get the timestamp in text form, in the format adopted in mzML: YYYY-MM-DDThh:mm:ssZ
 
 =item data_addr
 
