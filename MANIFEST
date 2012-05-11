@@ -1,4 +1,5 @@
 bin/mzxml-unpack
+bin/mzxml-scan
 bin/uf-casinfo
 bin/uf-error
 bin/uf-header
