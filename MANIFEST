@@ -8,6 +8,7 @@ bin/uf-instrument
 bin/uf-log
 bin/uf-meth
 bin/uf-mzxml
+bin/uf-mzml
 bin/uf-params
 bin/uf-rfi
 bin/uf-runheader
