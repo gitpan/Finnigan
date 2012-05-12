@@ -13,6 +13,7 @@ bin/uf-params
 bin/uf-rfi
 bin/uf-runheader
 bin/uf-scan
+bin/uf-scan-light
 bin/uf-segments
 bin/uf-seqrow
 bin/uf-trailer
